@@ -2467,6 +2467,7 @@ app.layout = html.Div(
         dcc.Store(id="selected-point-store", data=[]),
         dcc.Store(id="generated-ct-store", data=None),
         dcc.Store(id="generated-neighbor-store", data=[]),
+        dcc.Store(id="refresh-trigger", data=None),
 
         html.Div(
             className="header",
@@ -2492,22 +2493,53 @@ app.layout = html.Div(
                                     className="control-box",
                                     children=[
                                         html.Label("Visualization Mode"),
-                                        dcc.Dropdown(
-                                            id="plot-mode",
-                                            options=[
-                                                {"label": "PCA Plot", "value": "pca"},
-                                                {"label": "Perform DBSCAN on PCA", "value": "dbscan"},
-                                                {"label": "t-SNE Plot", "value": "tsne"},
-                                                {"label": "KDE / Pair Plot of t-SNE", "value": "tsne_kde"},
-                                                {"label": "UMAP Plot", "value": "umap"},
-                                                {"label": "KDE / Pair Plot of UMAP", "value": "umap_kde"},
-                                                {
-                                                    "label": "Compare PCA + t-SNE + UMAP",
-                                                    "value": "compare_all",
-                                                },
+                                        html.Div(
+                                            style={
+                                                "display": "flex",
+                                                "gap": "12px",
+                                                "alignItems": "end",
+                                            },
+                                            children=[
+                                                html.Div(
+                                                    style={"flex": "1"},
+                                                    children=[
+                                                        dcc.Dropdown(
+                                                            id="plot-mode",
+                                                            options=[
+                                                                {"label": "PCA Plot", "value": "pca"},
+                                                                {"label": "Perform DBSCAN on PCA", "value": "dbscan"},
+                                                                {"label": "t-SNE Plot", "value": "tsne"},
+                                                                {"label": "KDE / Pair Plot of t-SNE", "value": "tsne_kde"},
+                                                                {"label": "UMAP Plot", "value": "umap"},
+                                                                {"label": "KDE / Pair Plot of UMAP", "value": "umap_kde"},
+                                                                {
+                                                                    "label": "Compare PCA + t-SNE + UMAP",
+                                                                    "value": "compare_all",
+                                                                },
+                                                            ],
+                                                            value="pca",
+                                                            clearable=False,
+                                                            persistence=True,
+                                                            persistence_type="session",
+                                                        ),
+                                                    ],
+                                                ),
+                                                html.Button(
+                                                    "Refresh",
+                                                    id="refresh-button",
+                                                    n_clicks=0,
+                                                    style={
+                                                        "height": "38px",
+                                                        "padding": "0 16px",
+                                                        "border": "1px solid #d0d7de",
+                                                        "borderRadius": "6px",
+                                                        "backgroundColor": "#f6f8fa",
+                                                        "cursor": "pointer",
+                                                        "fontWeight": "600",
+                                                        "whiteSpace": "nowrap",
+                                                    },
+                                                ),
                                             ],
-                                            value="pca",
-                                            clearable=False,
                                         ),
                                     ],
                                 ),
@@ -2743,6 +2775,21 @@ app.layout = html.Div(
 # ============================================================
 # Callbacks
 # ============================================================
+
+app.clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) {
+            return window.dash_clientside.no_update;
+        }
+        window.location.reload();
+        return n_clicks;
+    }
+    """,
+    Output("refresh-trigger", "data"),
+    Input("refresh-button", "n_clicks"),
+    prevent_initial_call=True,
+)
 
 @app.callback(
     Output("single-plot-container", "style"),

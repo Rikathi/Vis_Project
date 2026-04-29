@@ -33,6 +33,7 @@ REAL_IMAGE_DIR = r"D:/KLAUS/Vis_Final_Project/gridimages2_npy_test_real"
 FAKE_IMAGE_DIR = r"D:/KLAUS/Vis_Final_Project/gridimages2_npy_output_fake"
 
 MODEL_PATH = r"D:/KLAUS/Vis_Final_Project/best_autoencoder_2d.pth"
+DECODER_PATH = r"D:/KLAUS/Vis_Final_Project/decoder_only_128.pth"
 
 MAX_SELECTED_IMAGES = 10
 LATENT_DIM = 128
@@ -307,6 +308,37 @@ class ConvAutoencoder2D(nn.Module):
     def forward(self, x):
         z = self.encode(x)
         return z
+    
+
+
+
+class DecoderOnly(nn.Module):
+    def __init__(self, latent_dim=128):
+        super().__init__()
+
+        self.fc_dec = nn.Linear(latent_dim, 256 * 8 * 8)
+
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(inplace=False),
+
+            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(inplace=False),
+
+            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(inplace=False),
+
+            nn.ConvTranspose2d(32, 1, kernel_size=4, stride=2, padding=1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, z):
+        x = self.fc_dec(z)
+        x = x.view(z.size(0), 256, 8, 8)
+        x = self.decoder(x)
+        return x
+
+
 
 
 class FeatureGradCAM:
@@ -363,6 +395,14 @@ class FeatureGradCAM:
 # ============================================================
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+decoder_model = DecoderOnly(latent_dim=LATENT_DIM).to(device)
+
+if not os.path.exists(DECODER_PATH):
+    raise FileNotFoundError(f"Decoder not found: {DECODER_PATH}")
+
+decoder_model.load_state_dict(torch.load(DECODER_PATH, map_location=device))
+decoder_model.eval()
 
 gradcam_model = ConvAutoencoder2D(latent_dim=LATENT_DIM).to(device)
 
@@ -535,6 +575,41 @@ def make_image_tile(row, feature_idx=126):
 # Plot Functions
 # ============================================================
 
+def add_click_catcher_grid(fig, data, x_col, y_col, grid_n=80):
+    x_min, x_max = data[x_col].min(), data[x_col].max()
+    y_min, y_max = data[y_col].min(), data[y_col].max()
+
+    x_pad = 0.08 * (x_max - x_min)
+    y_pad = 0.08 * (y_max - y_min)
+
+    xs = np.linspace(x_min - x_pad, x_max + x_pad, grid_n)
+    ys = np.linspace(y_min - y_pad, y_max + y_pad, grid_n)
+
+    gx, gy = np.meshgrid(xs, ys)
+
+    fig.add_scatter(
+        x=gx.ravel(),
+        y=gy.ravel(),
+        mode="markers",
+        marker=dict(
+            size=8,
+            color="rgba(0,0,0,0.01)",
+        ),
+        hoverinfo="skip",
+        showlegend=False,
+        name="click-catcher",
+        customdata=np.array([[-1]] * gx.size),
+    )
+
+    return fig
+
+
+
+
+
+
+
+
 def base_scatter(data, x, y_col, color, title, x_title, y_title):
     fig = px.scatter(
         data,
@@ -559,7 +634,7 @@ def base_scatter(data, x, y_col, color, title, x_title, y_title):
     fig.update_layout(
         height=560,
         clickmode="event+select",
-        dragmode="lasso",
+        dragmode="select",
         template="plotly_white",
         margin=dict(l=35, r=15, t=55, b=35),
         xaxis_title=x_title,
@@ -567,6 +642,7 @@ def base_scatter(data, x, y_col, color, title, x_title, y_title):
         legend_title="",
         uirevision="keep",
     )
+    fig = add_click_catcher_grid(fig, data, x, y_col)
 
     return fig
 
@@ -766,14 +842,85 @@ def make_compare_scatter(x_col, y_col, title, selected_ids=None):
     fig.update_layout(
         height=360,
         clickmode="event+select",
-        dragmode="lasso",
+        dragmode="select",
         template="plotly_white",
         margin=dict(l=35, r=15, t=50, b=35),
         legend_title="",
         uirevision="keep",
     )
 
+    fig = add_click_catcher_grid(fig, df, x_col, y_col)
     return fig
+
+
+def get_projection_columns(plot_id, plot_mode):
+    if plot_id == "compare-pca-plot":
+        return "PC1", "PC2", "PCA"
+
+    if plot_id == "compare-tsne-plot":
+        return "TSNE1", "TSNE2", "t-SNE"
+
+    if plot_id == "compare-umap-plot":
+        return "UMAP1", "UMAP2", "UMAP"
+
+    if plot_id == "main-plot":
+        if plot_mode in ["pca", "dbscan"]:
+            return "PC1", "PC2", "PCA"
+        elif plot_mode == "tsne":
+            return "TSNE1", "TSNE2", "t-SNE"
+        elif plot_mode == "umap":
+            return "UMAP1", "UMAP2", "UMAP"
+
+    return None, None, None
+
+
+def interpolate_latent_from_click(click_x, click_y, x_col, y_col, k=5):
+    coords = df[[x_col, y_col]].values.astype(np.float32)
+
+    click_point = np.array([click_x, click_y], dtype=np.float32)
+
+    distances = np.linalg.norm(coords - click_point[None, :], axis=1)
+
+    nearest_idx = np.argsort(distances)[:k]
+    nearest_distances = distances[nearest_idx]
+
+    weights = 1.0 / (nearest_distances + 1e-6)
+    weights = weights / weights.sum()
+
+    nearest_latents = X_raw[nearest_idx].astype(np.float32)
+
+    z_interp = np.sum(nearest_latents * weights[:, None], axis=0)
+
+    return z_interp, nearest_idx, weights
+
+
+def decode_latent_to_base64(z_interp):
+    z_tensor = torch.tensor(z_interp, dtype=torch.float32).unsqueeze(0).to(device)
+
+    with torch.no_grad():
+        generated = decoder_model(z_tensor)
+
+    img = generated[0, 0].detach().cpu().numpy()
+
+    img = np.clip(img, 0, 1)
+    img_uint8 = (img * 255).astype(np.uint8)
+
+    pil_img = Image.fromarray(img_uint8)
+
+    buffer = io.BytesIO()
+    pil_img.save(buffer, format="PNG")
+
+    encoded = base64.b64encode(buffer.getvalue()).decode()
+    return "data:image/png;base64," + encoded
+
+
+
+
+
+
+
+
+
 
 
 # ============================================================
@@ -979,6 +1126,33 @@ app.layout = html.Div(
                                 ),
                             ],
                         ),
+
+                        html.Div(
+                            className="image-card",
+                            children=[
+                                html.H3("Generated CT from Empty-Space Click"),
+
+                                html.Div(
+                                    id="generated-image-info",
+                                    className="image-info",
+                                    children="Click anywhere in PCA / t-SNE / UMAP space to interpolate nearby 128D features and decode a new CT image.",
+                                ),
+
+                                html.Img(
+                                    id="generated-image",
+                                    className="selected-image hidden-image",
+                                ),
+                            ],
+                        ),
+
+
+
+
+
+
+
+
+
 
                         html.Div(
                             className="cluster-card",
@@ -1206,6 +1380,182 @@ The selected samples remain highlighted in red in all projections.
             tiles.append(tile)
 
     return summary, tiles, gradcam_summary
+
+
+
+@app.callback(
+    Output("generated-image", "src"),
+    Output("generated-image", "className"),
+    Output("generated-image-info", "children"),
+
+    Input("main-plot", "clickData"),
+    Input("compare-pca-plot", "clickData"),
+    Input("compare-tsne-plot", "clickData"),
+    Input("compare-umap-plot", "clickData"),
+
+    Input("main-plot", "selectedData"),
+    Input("compare-pca-plot", "selectedData"),
+    Input("compare-tsne-plot", "selectedData"),
+    Input("compare-umap-plot", "selectedData"),
+
+    State("plot-mode", "value"),
+)
+def generate_ct_from_clicked_or_selected_space(
+    main_click,
+    pca_click,
+    tsne_click,
+    umap_click,
+    main_selected,
+    pca_selected,
+    tsne_selected,
+    umap_selected,
+    plot_mode,
+):
+    triggered_id = ctx.triggered_id
+
+    selected_map = {
+        "main-plot": main_selected,
+        "compare-pca-plot": pca_selected,
+        "compare-tsne-plot": tsne_selected,
+        "compare-umap-plot": umap_selected,
+    }
+
+    click_map = {
+        "main-plot": main_click,
+        "compare-pca-plot": pca_click,
+        "compare-tsne-plot": tsne_click,
+        "compare-umap-plot": umap_click,
+    }
+
+    x_col, y_col, projection_name = get_projection_columns(triggered_id, plot_mode)
+
+    if x_col is None:
+        return None, "selected-image hidden-image", "Generation works only for PCA, t-SNE, and UMAP."
+
+    try:
+        selected_data = selected_map.get(triggered_id)
+
+        if selected_data is not None and "points" in selected_data and len(selected_data["points"]) > 0:
+            xs = [float(p["x"]) for p in selected_data["points"]]
+            ys = [float(p["y"]) for p in selected_data["points"]]
+
+            click_x = float(np.mean(xs))
+            click_y = float(np.mean(ys))
+            action_text = "selected white-space region"
+
+        else:
+            click_data = click_map.get(triggered_id)
+
+            if click_data is None:
+                return None, "selected-image hidden-image", "Click or select a region in PCA / t-SNE / UMAP."
+
+            click_x = float(click_data["points"][0]["x"])
+            click_y = float(click_data["points"][0]["y"])
+            action_text = "single click"
+
+        z_interp, nearest_idx, weights = interpolate_latent_from_click(
+            click_x,
+            click_y,
+            x_col,
+            y_col,
+            k=5,
+        )
+
+        img_src = decode_latent_to_base64(z_interp)
+
+        info = f"""
+Generated from {projection_name} using {action_text}
+
+Coordinate:
+x = {click_x:.4f}
+y = {click_y:.4f}
+
+Nearest sample indices:
+{nearest_idx.tolist()}
+
+Interpolation weights:
+{np.round(weights, 4).tolist()}
+
+Latent vector shape:
+{z_interp.shape}
+"""
+
+        return img_src, "selected-image", info
+
+    except Exception as e:
+        return None, "selected-image hidden-image", f"Decoder generation error: {str(e)}"
+
+
+
+
+
+# @app.callback(
+#     Output("generated-image", "src"),
+#     Output("generated-image", "className"),
+#     Output("generated-image-info", "children"),
+#     Input("main-plot", "clickData"),
+#     Input("compare-pca-plot", "clickData"),
+#     Input("compare-tsne-plot", "clickData"),
+#     Input("compare-umap-plot", "clickData"),
+#     State("plot-mode", "value"),
+# )
+# def generate_ct_from_clicked_space(main_click, pca_click, tsne_click, umap_click, plot_mode):
+#     triggered_id = ctx.triggered_id
+
+#     click_map = {
+#         "main-plot": main_click,
+#         "compare-pca-plot": pca_click,
+#         "compare-tsne-plot": tsne_click,
+#         "compare-umap-plot": umap_click,
+#     }
+
+#     click_data = click_map.get(triggered_id)
+
+#     if click_data is None:
+#         return None, "selected-image hidden-image", "Click PCA / t-SNE / UMAP space to generate a CT image."
+
+#     x_col, y_col, projection_name = get_projection_columns(triggered_id, plot_mode)
+
+#     if x_col is None:
+#         return None, "selected-image hidden-image", "Generation works only for PCA, t-SNE, and UMAP plots."
+
+#     try:
+#         click_x = float(click_data["points"][0]["x"])
+#         click_y = float(click_data["points"][0]["y"])
+
+#         z_interp, nearest_idx, weights = interpolate_latent_from_click(
+#             click_x,
+#             click_y,
+#             x_col,
+#             y_col,
+#             k=5,
+#         )
+
+#         img_src = decode_latent_to_base64(z_interp)
+
+#         info = f"""
+# Generated from {projection_name} click
+
+# Clicked coordinate:
+# x = {click_x:.4f}
+# y = {click_y:.4f}
+
+# Nearest sample indices:
+# {nearest_idx.tolist()}
+
+# Interpolation weights:
+# {np.round(weights, 4).tolist()}
+
+# Latent vector shape:
+# {z_interp.shape}
+# """
+
+#         return img_src, "selected-image", info
+
+#     except Exception as e:
+#         return None, "selected-image hidden-image", f"Decoder generation error: {str(e)}"
+
+
 
 
 if __name__ == "__main__":

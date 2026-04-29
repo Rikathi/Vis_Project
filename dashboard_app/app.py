@@ -933,6 +933,7 @@ app.layout = html.Div(
     className="page-container",
     children=[
         dcc.Store(id="selected-point-store", data=[]),
+        dcc.Store(id="generated-ct-store", data=None),
 
         html.Div(
             className="header",
@@ -1400,6 +1401,108 @@ The selected samples remain highlighted in red in all projections.
 
     State("plot-mode", "value"),
 )
+# def generate_ct_from_clicked_or_selected_space(
+#     main_click,
+#     pca_click,
+#     tsne_click,
+#     umap_click,
+#     main_selected,
+#     pca_selected,
+#     tsne_selected,
+#     umap_selected,
+#     plot_mode,
+# ):
+#     triggered_id = ctx.triggered_id
+
+#     selected_map = {
+#         "main-plot": main_selected,
+#         "compare-pca-plot": pca_selected,
+#         "compare-tsne-plot": tsne_selected,
+#         "compare-umap-plot": umap_selected,
+#     }
+
+#     click_map = {
+#         "main-plot": main_click,
+#         "compare-pca-plot": pca_click,
+#         "compare-tsne-plot": tsne_click,
+#         "compare-umap-plot": umap_click,
+#     }
+
+#     x_col, y_col, projection_name = get_projection_columns(triggered_id, plot_mode)
+
+#     if x_col is None:
+#         return None, "selected-image hidden-image", "Generation works only for PCA, t-SNE, and UMAP."
+
+#     try:
+#         selected_data = selected_map.get(triggered_id)
+
+#         if selected_data is not None and "points" in selected_data and len(selected_data["points"]) > 0:
+#             xs = [float(p["x"]) for p in selected_data["points"]]
+#             ys = [float(p["y"]) for p in selected_data["points"]]
+
+#             click_x = float(np.mean(xs))
+#             click_y = float(np.mean(ys))
+#             action_text = "selected white-space region"
+
+#         else:
+#             click_data = click_map.get(triggered_id)
+
+#             if click_data is None:
+#                 return None, "selected-image hidden-image", "Click or select a region in PCA / t-SNE / UMAP."
+
+#             click_x = float(click_data["points"][0]["x"])
+#             click_y = float(click_data["points"][0]["y"])
+#             action_text = "single click"
+
+#         z_interp, nearest_idx, weights = interpolate_latent_from_click(
+#             click_x,
+#             click_y,
+#             x_col,
+#             y_col,
+#             k=5,
+#         )
+
+#         img_src = decode_latent_to_base64(z_interp)
+
+#         info = f"""
+# Generated from {projection_name} using {action_text}
+
+# Coordinate:
+# x = {click_x:.4f}
+# y = {click_y:.4f}
+
+# Nearest sample indices:
+# {nearest_idx.tolist()}
+
+# Interpolation weights:
+# {np.round(weights, 4).tolist()}
+
+# Latent vector shape:
+# {z_interp.shape}
+# """
+
+#         return img_src, "selected-image", info
+
+#     except Exception as e:
+#         return None, "selected-image hidden-image", f"Decoder generation error: {str(e)}"
+
+
+@app.callback(
+    Output("generated-ct-store", "data"),
+
+    Input("main-plot", "clickData"),
+    Input("compare-pca-plot", "clickData"),
+    Input("compare-tsne-plot", "clickData"),
+    Input("compare-umap-plot", "clickData"),
+
+    Input("main-plot", "selectedData"),
+    Input("compare-pca-plot", "selectedData"),
+    Input("compare-tsne-plot", "selectedData"),
+    Input("compare-umap-plot", "selectedData"),
+
+    State("plot-mode", "value"),
+    prevent_initial_call=True,
+)
 def generate_ct_from_clicked_or_selected_space(
     main_click,
     pca_click,
@@ -1430,7 +1533,7 @@ def generate_ct_from_clicked_or_selected_space(
     x_col, y_col, projection_name = get_projection_columns(triggered_id, plot_mode)
 
     if x_col is None:
-        return None, "selected-image hidden-image", "Generation works only for PCA, t-SNE, and UMAP."
+        return no_update
 
     try:
         selected_data = selected_map.get(triggered_id)
@@ -1447,7 +1550,7 @@ def generate_ct_from_clicked_or_selected_space(
             click_data = click_map.get(triggered_id)
 
             if click_data is None:
-                return None, "selected-image hidden-image", "Click or select a region in PCA / t-SNE / UMAP."
+                return no_update
 
             click_x = float(click_data["points"][0]["x"])
             click_y = float(click_data["points"][0]["y"])
@@ -1480,80 +1583,39 @@ Latent vector shape:
 {z_interp.shape}
 """
 
-        return img_src, "selected-image", info
+        return {
+            "img_src": img_src,
+            "info": info,
+        }
 
     except Exception as e:
-        return None, "selected-image hidden-image", f"Decoder generation error: {str(e)}"
+        return {
+            "img_src": None,
+            "info": f"Decoder generation error: {str(e)}",
+        }
 
+@app.callback(
+    Output("generated-image", "src"),
+    Output("generated-image", "className"),
+    Output("generated-image-info", "children"),
+    Input("generated-ct-store", "data"),
+)
+def keep_generated_ct_visible(data):
+    if data is None:
+        return (
+            None,
+            "selected-image hidden-image",
+            "Click/select a box in PCA / t-SNE / UMAP space to generate a CT image.",
+        )
 
+    if data.get("img_src") is None:
+        return (
+            None,
+            "selected-image hidden-image",
+            data.get("info", "Generation failed."),
+        )
 
-
-
-# @app.callback(
-#     Output("generated-image", "src"),
-#     Output("generated-image", "className"),
-#     Output("generated-image-info", "children"),
-#     Input("main-plot", "clickData"),
-#     Input("compare-pca-plot", "clickData"),
-#     Input("compare-tsne-plot", "clickData"),
-#     Input("compare-umap-plot", "clickData"),
-#     State("plot-mode", "value"),
-# )
-# def generate_ct_from_clicked_space(main_click, pca_click, tsne_click, umap_click, plot_mode):
-#     triggered_id = ctx.triggered_id
-
-#     click_map = {
-#         "main-plot": main_click,
-#         "compare-pca-plot": pca_click,
-#         "compare-tsne-plot": tsne_click,
-#         "compare-umap-plot": umap_click,
-#     }
-
-#     click_data = click_map.get(triggered_id)
-
-#     if click_data is None:
-#         return None, "selected-image hidden-image", "Click PCA / t-SNE / UMAP space to generate a CT image."
-
-#     x_col, y_col, projection_name = get_projection_columns(triggered_id, plot_mode)
-
-#     if x_col is None:
-#         return None, "selected-image hidden-image", "Generation works only for PCA, t-SNE, and UMAP plots."
-
-#     try:
-#         click_x = float(click_data["points"][0]["x"])
-#         click_y = float(click_data["points"][0]["y"])
-
-#         z_interp, nearest_idx, weights = interpolate_latent_from_click(
-#             click_x,
-#             click_y,
-#             x_col,
-#             y_col,
-#             k=5,
-#         )
-
-#         img_src = decode_latent_to_base64(z_interp)
-
-#         info = f"""
-# Generated from {projection_name} click
-
-# Clicked coordinate:
-# x = {click_x:.4f}
-# y = {click_y:.4f}
-
-# Nearest sample indices:
-# {nearest_idx.tolist()}
-
-# Interpolation weights:
-# {np.round(weights, 4).tolist()}
-
-# Latent vector shape:
-# {z_interp.shape}
-# """
-
-#         return img_src, "selected-image", info
-
-#     except Exception as e:
-#         return None, "selected-image hidden-image", f"Decoder generation error: {str(e)}"
+    return data["img_src"], "selected-image", data["info"]
 
 
 

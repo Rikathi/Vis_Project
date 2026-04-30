@@ -2472,90 +2472,36 @@ app.layout = html.Div(
         html.Div(
             className="header",
             children=[
-                html.Div(
-                    "Interactive Feature Space Dashboard",
-                    className="header-kicker",
-                ),
                 html.H1("Feature Space Explorer", className="main-title"),
                 html.P(
                     "Click one point for a single CT slice. Use box/lasso select to view selected images and Grad-CAM projections.",
                     className="subtitle",
                 ),
-                html.Div(
-                    className="header-stats",
-                    children=[
-                        html.Div(
-                            className="stat-pill",
-                            children=[
-                                html.Span("Real", className="stat-label"),
-                                html.Span(f"{len(real)}", className="stat-value"),
-                            ],
-                        ),
-                        html.Div(
-                            className="stat-pill",
-                            children=[
-                                html.Span("Fake", className="stat-label"),
-                                html.Span(f"{len(fake)}", className="stat-value"),
-                            ],
-                        ),
-                        html.Div(
-                            className="stat-pill",
-                            children=[
-                                html.Span("Latent Features", className="stat-label"),
-                                html.Span(f"{len(feature_cols)}", className="stat-value"),
-                            ],
-                        ),
-                        html.Div(
-                            className="stat-pill",
-                            children=[
-                                html.Span("Views", className="stat-label"),
-                                html.Span("7", className="stat-value"),
-                            ],
-                        ),
-                    ],
-                ),
             ],
         ),
 
         html.Div(
-            id="dashboard-layout",
             className="dashboard-layout",
             children=[
                 html.Div(
-                    id="left-panel",
                     className="left-panel",
                     children=[
                         html.Div(
                             className="control-card",
                             children=[
                                 html.Div(
-                                    className="card-heading-row",
-                                    children=[
-                                        html.Div(
-                                            children=[
-                                                html.Div("Controls", className="section-kicker"),
-                                                html.H3("Explore projections your way", className="card-title"),
-                                                html.P(
-                                                    "Switch views, refresh the current mode, and tune DBSCAN without resetting the dashboard flow.",
-                                                    className="card-description",
-                                                ),
-                                            ],
-                                        ),
-                                        html.Div(
-                                            "Selections and compare mode stay available while you move across projections.",
-                                            className="hint-badge",
-                                        ),
-                                    ],
-                                ),
-                                html.Div(
                                     className="control-box",
                                     children=[
                                         html.Label("Visualization Mode"),
                                         html.Div(
-                                            className="mode-selector-row",
+                                            style={
+                                                "display": "flex",
+                                                "gap": "12px",
+                                                "alignItems": "end",
+                                            },
                                             children=[
                                                 html.Div(
-                                                    className="mode-selector-dropdown",
+                                                    style={"flex": "1"},
                                                     children=[
                                                         dcc.Dropdown(
                                                             id="plot-mode",
@@ -2582,13 +2528,18 @@ app.layout = html.Div(
                                                     "Refresh",
                                                     id="refresh-button",
                                                     n_clicks=0,
-                                                    className="refresh-button",
+                                                    style={
+                                                        "height": "38px",
+                                                        "padding": "0 16px",
+                                                        "border": "1px solid #d0d7de",
+                                                        "borderRadius": "6px",
+                                                        "backgroundColor": "#f6f8fa",
+                                                        "cursor": "pointer",
+                                                        "fontWeight": "600",
+                                                        "whiteSpace": "nowrap",
+                                                    },
                                                 ),
                                             ],
-                                        ),
-                                        html.Div(
-                                            "Refresh reloads the page but keeps the current visualization mode selected.",
-                                            className="control-helper",
                                         ),
                                     ],
                                 ),
@@ -2614,8 +2565,6 @@ app.layout = html.Div(
                                             ],
                                             value="existing",
                                             inline=True,
-                                            className="compare-radio-group",
-                                            labelClassName="compare-radio-option",
                                         ),
                                     ],
                                 ),
@@ -2624,6 +2573,40 @@ app.layout = html.Div(
 
 
 
+                                html.Div(
+                                    className="dbscan-controls",
+                                    children=[
+                                        html.Div(
+                                            className="control-box",
+                                            children=[
+                                                html.Label("DBSCAN eps"),
+                                                dcc.Input(
+                                                    id="eps-input",
+                                                    type="number",
+                                                    value=0.65,
+                                                    step=0.05,
+                                                    min=0.01,
+                                                    className="number-input",
+                                                ),
+                                            ],
+                                        ),
+
+                                        html.Div(
+                                            className="control-box",
+                                            children=[
+                                                html.Label("min_samples"),
+                                                dcc.Input(
+                                                    id="min-samples-input",
+                                                    type="number",
+                                                    value=5,
+                                                    step=1,
+                                                    min=1,
+                                                    className="number-input",
+                                                ),
+                                            ],
+                                        ),
+                                    ],
+                                ),
                             ],
                         ),
 
@@ -2694,14 +2677,11 @@ app.layout = html.Div(
                 ),
 
                 html.Div(
-                    id="right-panel",
                     className="right-panel",
                     children=[
                         html.Div(
-                            id="gradcam-control-card",
                             className="gradcam-control-card",
                             children=[
-                                html.Div("Analysis", className="section-kicker"),
                                 html.H3("Grad-CAM Feature Projection"),
                                 html.Div(
                                     className="control-box",
@@ -2727,10 +2707,8 @@ app.layout = html.Div(
                         ),
 
                         html.Div(
-                            id="single-image-card",
                             className="image-card",
                             children=[
-                                html.Div("Single Sample", className="section-kicker"),
                                 html.H3("Single Selected CT Slice"),
                                 html.Div(
                                     id="image-info",
@@ -2745,10 +2723,8 @@ app.layout = html.Div(
                         ),
 
                         html.Div(
-                            id="generated-image-card",
                             className="image-card",
                             children=[
-                                html.Div("Generation", className="section-kicker"),
                                 html.H3("Generated CT from Empty-Space Click"),
 
                                 html.Div(
@@ -2774,10 +2750,8 @@ app.layout = html.Div(
 
 
                         html.Div(
-                            id="cluster-card",
                             className="cluster-card",
                             children=[
-                                html.Div("Selection Gallery", className="section-kicker"),
                                 html.H3("Selected Region / Cluster Images + Grad-CAM"),
                                 html.Div(
                                     id="selected-summary",
@@ -2839,61 +2813,19 @@ def toggle_plot_mode(plot_mode):
 
 
 @app.callback(
-    Output("dashboard-layout", "style"),
-    Output("right-panel", "style"),
-    Output("gradcam-control-card", "style"),
-    Output("single-image-card", "style"),
-    Output("generated-image-card", "style"),
-    Output("cluster-card", "style"),
-    Input("plot-mode", "value"),
-    Input("compare-action", "value"),
-)
-def toggle_right_panel_sections(plot_mode, compare_action):
-    default_layout_style = {}
-    default_right_panel_style = {}
-    visible_style = {"display": "block"}
-    hidden_style = {"display": "none"}
-
-    if plot_mode in ["tsne_kde", "umap_kde"]:
-        return (
-            {"gridTemplateColumns": "1fr"},
-            {"display": "none"},
-            hidden_style,
-            hidden_style,
-            hidden_style,
-            hidden_style,
-        )
-
-    if plot_mode == "compare_all" and compare_action == "generate":
-        return (
-            default_layout_style,
-            default_right_panel_style,
-            visible_style,
-            hidden_style,
-            visible_style,
-            hidden_style,
-        )
-
-    return (
-        default_layout_style,
-        default_right_panel_style,
-        visible_style,
-        visible_style,
-        hidden_style,
-        visible_style,
-    )
-
-
-@app.callback(
     Output("main-plot", "figure"),
     Input("plot-mode", "value"),
+    Input("eps-input", "value"),
+    Input("min-samples-input", "value"),
 )
-def update_plot(plot_mode):
+def update_plot(plot_mode, eps, min_samples):
     if plot_mode == "pca" or plot_mode == "compare_all":
         return make_pca_plot()
 
     if plot_mode == "dbscan":
-        return make_dbscan_plot(eps=0.65, min_samples=5)
+        eps = float(eps) if eps is not None else 0.65
+        min_samples = int(min_samples) if min_samples is not None else 5
+        return make_dbscan_plot(eps=eps, min_samples=min_samples)
 
     if plot_mode == "tsne":
         return make_tsne_plot()

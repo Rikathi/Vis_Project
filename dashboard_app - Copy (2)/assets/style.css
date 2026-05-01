@@ -375,99 +375,6 @@ body {
     overflow: hidden;
 }
 
-.dbscan-breakdown-title {
-    margin: 12px 0 8px;
-    color: #173a5e;
-    font-size: 22px;
-    line-height: 1.25;
-}
-
-.dbscan-breakdown-description {
-    margin: 0 0 16px;
-    color: #60748a;
-    font-size: 14px;
-    line-height: 1.6;
-}
-
-.dbscan-cluster-breakdown {
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-}
-
-.dbscan-cluster-nav {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-    margin-top: 16px;
-}
-
-.dbscan-cluster-progress {
-    color: #5d728a;
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.03em;
-}
-
-.dbscan-cluster-nav-buttons {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-}
-
-.dbscan-next-button {
-    min-width: 170px;
-}
-
-.dbscan-cluster-card {
-    border: 1px solid rgba(141, 163, 191, 0.18);
-    border-radius: 20px;
-    background: linear-gradient(180deg, rgba(252, 254, 255, 0.98), rgba(244, 249, 255, 0.94));
-    padding: 14px;
-    box-shadow: 0 12px 28px rgba(58, 86, 120, 0.08);
-}
-
-.dbscan-cluster-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 12px;
-}
-
-.dbscan-cluster-title {
-    color: #173a5e;
-    font-size: 18px;
-    font-weight: 800;
-}
-
-.dbscan-cluster-meta {
-    color: #5d728a;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.03em;
-}
-
-.dbscan-cluster-graphs {
-    display: grid;
-    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.25fr);
-    gap: 14px;
-    align-items: stretch;
-}
-
-.dbscan-cluster-graph {
-    min-width: 0;
-    border: 1px solid rgba(141, 163, 191, 0.14);
-    border-radius: 16px;
-    background: rgba(255, 255, 255, 0.92);
-}
-
-.dbscan-cluster-graph .js-plotly-plot,
-.dbscan-cluster-graph .plot-container {
-    min-height: 340px;
-}
-
 .gradcam-control-card h3,
 .image-card h3,
 .cluster-card h3 {
@@ -612,27 +519,6 @@ body {
     .selected-image-grid,
     .tile-two-images {
         grid-template-columns: 1fr;
-    }
-
-    .dbscan-cluster-header,
-    .dbscan-cluster-graphs {
-        display: flex;
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .dbscan-cluster-nav {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .dbscan-cluster-nav-buttons {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .dbscan-next-button {
-        width: 100%;
     }
 }
 

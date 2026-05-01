@@ -1534,7 +1534,6 @@ import os
 import re
 import base64
 import io
-from functools import lru_cache
 
 import numpy as np
 import pandas as pd
@@ -1551,7 +1550,6 @@ from sklearn.manifold import TSNE
 import umap
 
 import plotly.express as px
-import plotly.graph_objects as go
 # from dash import Dash, dcc, html, Input, Output, ctx
 from dash import Dash, dcc, html, Input, Output, State, ctx, no_update
 
@@ -1573,10 +1571,6 @@ MAX_SELECTED_IMAGES = 10
 LATENT_DIM = 128
 IMG_SIZE = 128
 GRADCAM_CACHE = {}
-DBSCAN_EPS = 0.65
-DBSCAN_MIN_SAMPLES = 5
-DBSCAN_PARALLEL_FEATURE_COUNT = 6
-DBSCAN_PARALLEL_SAMPLE_SIZE = 80
 
 
 # ============================================================
@@ -1598,28 +1592,11 @@ if len(feature_cols) == 0:
 
 X_raw = df[feature_cols].values
 y = df["type"].values
-REAL_ROW_INDICES = np.where(y == "real")[0]
 
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X_raw)
-scaled_feature_df = pd.DataFrame(X_scaled, columns=feature_cols)
 
 df["point_id"] = df.index.astype(str)
-
-DBSCAN_PARALLEL_FEATURES = (
-    scaled_feature_df.var()
-    .sort_values(ascending=False)
-    .head(DBSCAN_PARALLEL_FEATURE_COUNT)
-    .index
-    .tolist()
-)
-DBSCAN_PARALLEL_RANGES = {
-    col: [
-        float(scaled_feature_df[col].min()),
-        float(scaled_feature_df[col].max()),
-    ]
-    for col in DBSCAN_PARALLEL_FEATURES
-}
 
 
 # ============================================================
@@ -2238,20 +2215,16 @@ def make_umap_plot():
     )
 
 
-@lru_cache(maxsize=8)
-def compute_dbscan_dataframe(eps=DBSCAN_EPS, min_samples=DBSCAN_MIN_SAMPLES):
+def make_dbscan_plot(eps=0.65, min_samples=5):
     temp_df = df.copy()
+
     dbscan = DBSCAN(eps=eps, min_samples=min_samples)
     labels = dbscan.fit_predict(temp_df[["PC1", "PC2"]].values)
+
     temp_df["cluster"] = labels
     temp_df["cluster_label"] = temp_df["cluster"].apply(
         lambda x: "noise" if x == -1 else f"cluster {x}"
     )
-    return temp_df
-
-
-def make_dbscan_plot(eps=DBSCAN_EPS, min_samples=DBSCAN_MIN_SAMPLES):
-    temp_df = compute_dbscan_dataframe(eps=eps, min_samples=min_samples)
 
     fig = px.scatter(
         temp_df,
@@ -2288,287 +2261,6 @@ def make_dbscan_plot(eps=DBSCAN_EPS, min_samples=DBSCAN_MIN_SAMPLES):
     )
 
     return fig
-
-
-def make_dbscan_cluster_highlight_plot(cluster_df, full_df, cluster_id):
-    title = "Cluster -1 (Noise / Outliers)" if cluster_id == -1 else f"Cluster {cluster_id}"
-
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=full_df["PC1"],
-            y=full_df["PC2"],
-            mode="markers",
-            marker=dict(size=6, color="lightgray", opacity=0.18),
-            name="all points",
-            hoverinfo="skip",
-            showlegend=False,
-        )
-    )
-
-    real_points = cluster_df[cluster_df["type"] == "real"]
-    fake_points = cluster_df[cluster_df["type"] == "fake"]
-
-    if len(real_points) > 0:
-        fig.add_trace(
-            go.Scatter(
-                x=real_points["PC1"],
-                y=real_points["PC2"],
-                mode="markers",
-                marker=dict(size=8, color="#2563eb", opacity=0.85),
-                name=f"real ({len(real_points)})",
-                customdata=real_points[["point_id"]].values,
-                hovertemplate="real<br>PC1=%{x:.3f}<br>PC2=%{y:.3f}<extra></extra>",
-            )
-        )
-
-    if len(fake_points) > 0:
-        fig.add_trace(
-            go.Scatter(
-                x=fake_points["PC1"],
-                y=fake_points["PC2"],
-                mode="markers",
-                marker=dict(size=8, color="#f59e0b", opacity=0.85),
-                name=f"fake ({len(fake_points)})",
-                customdata=fake_points[["point_id"]].values,
-                hovertemplate="fake<br>PC1=%{x:.3f}<br>PC2=%{y:.3f}<extra></extra>",
-            )
-        )
-
-    x_pad = 0.5
-    y_pad = 0.5
-    fig.update_layout(
-        title=title,
-        height=340,
-        clickmode="event+select",
-        dragmode="lasso",
-        template="plotly_white",
-        margin=dict(l=35, r=15, t=50, b=35),
-        xaxis_title="PC1",
-        yaxis_title="PC2",
-        legend_title="",
-        xaxis=dict(range=[full_df["PC1"].min() - x_pad, full_df["PC1"].max() + x_pad]),
-        yaxis=dict(range=[full_df["PC2"].min() - y_pad, full_df["PC2"].max() + y_pad]),
-        uirevision="keep",
-    )
-    return fig
-
-
-def make_dbscan_cluster_parallel_plot(cluster_df, cluster_id):
-    if len(cluster_df) == 0:
-        return go.Figure()
-
-    sampled = scaled_feature_df.loc[cluster_df.index, DBSCAN_PARALLEL_FEATURES].copy()
-    sampled = sampled.replace([np.inf, -np.inf], np.nan)
-
-    for col in DBSCAN_PARALLEL_FEATURES:
-        sampled[col] = sampled[col].fillna(float(scaled_feature_df[col].median()))
-
-    sampled["type"] = cluster_df["type"].values
-    if len(sampled) > DBSCAN_PARALLEL_SAMPLE_SIZE:
-        sampled = sampled.sample(DBSCAN_PARALLEL_SAMPLE_SIZE, random_state=42)
-
-    sampled = sampled.sort_values("type").reset_index(drop=True)
-
-    sampled["type_code"] = sampled["type"].map({"real": 0, "fake": 1}).astype(float)
-
-    dimensions = []
-    for col in DBSCAN_PARALLEL_FEATURES:
-        col_min, col_max = DBSCAN_PARALLEL_RANGES[col]
-        if col_min == col_max:
-            col_min -= 1e-6
-            col_max += 1e-6
-        tickvals = np.linspace(col_min, col_max, 5).tolist()
-        ticktext = [f"{v:.2f}" for v in tickvals]
-        dimensions.append(
-            dict(
-                range=[col_min, col_max],
-                label=col,
-                values=sampled[col].tolist(),
-                tickvals=tickvals,
-                ticktext=ticktext,
-            )
-        )
-
-    fig = go.Figure(
-        data=go.Parcoords(
-            line=dict(
-                color=sampled["type_code"],
-                colorscale=[
-                    [0.0, "#2563eb"],
-                    [0.499, "#2563eb"],
-                    [0.5, "#f59e0b"],
-                    [1.0, "#f59e0b"],
-                ],
-                cmin=0,
-                cmax=1,
-                showscale=True,
-                colorbar=dict(
-                    title="Type",
-                    tickvals=[0, 1],
-                    ticktext=["real", "fake"],
-                    len=0.72,
-                    thickness=14,
-                    outlinewidth=0,
-                ),
-            ),
-            dimensions=dimensions,
-            labelfont=dict(size=1, color="rgba(0,0,0,0.01)"),
-            tickfont=dict(size=11, color="#5b7088"),
-        )
-    )
-
-    axis_annotations = []
-    axis_count = len(DBSCAN_PARALLEL_FEATURES)
-    for idx, col in enumerate(DBSCAN_PARALLEL_FEATURES):
-        x_pos = 0.5 if axis_count == 1 else idx / (axis_count - 1)
-        axis_annotations.append(
-            dict(
-                x=x_pos,
-                y=1.08,
-                xref="paper",
-                yref="paper",
-                text=col,
-                showarrow=False,
-                xanchor="center",
-                yanchor="bottom",
-                font=dict(size=13, color="#334e68"),
-            )
-        )
-
-    fig.update_layout(
-        height=340,
-        template="plotly_white",
-        margin=dict(l=30, r=40, t=48, b=8),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="white",
-        annotations=axis_annotations,
-    )
-    return fig
-
-
-@lru_cache(maxsize=8)
-def build_dbscan_cluster_cards(eps=DBSCAN_EPS, min_samples=DBSCAN_MIN_SAMPLES):
-    dbscan_df = compute_dbscan_dataframe(eps=eps, min_samples=min_samples)
-    unique_clusters = sorted(dbscan_df["cluster"].unique())
-    cards = []
-
-    for cluster_id in unique_clusters:
-        cluster_df = dbscan_df[dbscan_df["cluster"] == cluster_id].copy()
-        type_counts = cluster_df["type"].value_counts()
-        real_count = int(type_counts.get("real", 0))
-        fake_count = int(type_counts.get("fake", 0))
-        cluster_name = "Noise / Outliers" if cluster_id == -1 else f"Cluster {cluster_id}"
-
-        cards.append(
-            html.Div(
-                className="dbscan-cluster-card",
-                children=[
-                    html.Div(
-                        className="dbscan-cluster-header",
-                        children=[
-                            html.Div(cluster_name, className="dbscan-cluster-title"),
-                            html.Div(
-                                f"Total: {len(cluster_df)} | Real: {real_count} | Fake: {fake_count}",
-                                className="dbscan-cluster-meta",
-                            ),
-                        ],
-                    ),
-                    html.Div(
-                        className="dbscan-cluster-graphs",
-                        children=[
-                            dcc.Graph(
-                                figure=make_dbscan_cluster_highlight_plot(
-                                    cluster_df,
-                                    dbscan_df,
-                                    cluster_id,
-                                ),
-                                config={"displayModeBar": True},
-                                className="dbscan-cluster-graph",
-                            ),
-                            dcc.Graph(
-                                figure=make_dbscan_cluster_parallel_plot(
-                                    cluster_df,
-                                    cluster_id,
-                                ),
-                                config={
-                                    "displayModeBar": True,
-                                    "displaylogo": False,
-                                    "responsive": True,
-                                },
-                                className="dbscan-cluster-graph",
-                            ),
-                        ],
-                    ),
-                ],
-            )
-        )
-
-    return cards
-
-
-def get_dbscan_cluster_ids(eps=DBSCAN_EPS, min_samples=DBSCAN_MIN_SAMPLES):
-    dbscan_df = compute_dbscan_dataframe(eps=eps, min_samples=min_samples)
-    return sorted(dbscan_df["cluster"].unique().tolist())
-
-
-def build_single_dbscan_cluster_card(
-    cluster_id,
-    eps=DBSCAN_EPS,
-    min_samples=DBSCAN_MIN_SAMPLES,
-):
-    dbscan_df = compute_dbscan_dataframe(eps=eps, min_samples=min_samples)
-    cluster_df = dbscan_df[dbscan_df["cluster"] == cluster_id].copy()
-    type_counts = cluster_df["type"].value_counts()
-    real_count = int(type_counts.get("real", 0))
-    fake_count = int(type_counts.get("fake", 0))
-    cluster_name = "Noise / Outliers" if cluster_id == -1 else f"Cluster {cluster_id}"
-
-    return html.Div(
-        className="dbscan-cluster-card",
-        children=[
-            html.Div(
-                className="dbscan-cluster-header",
-                children=[
-                    html.Div(cluster_name, className="dbscan-cluster-title"),
-                    html.Div(
-                        f"Total: {len(cluster_df)} | Real: {real_count} | Fake: {fake_count}",
-                        className="dbscan-cluster-meta",
-                    ),
-                ],
-            ),
-            html.Div(
-                className="dbscan-cluster-graphs",
-                children=[
-                    dcc.Graph(
-                        figure=make_dbscan_cluster_highlight_plot(
-                            cluster_df,
-                            dbscan_df,
-                            cluster_id,
-                        ),
-                        config={
-                            "displayModeBar": True,
-                            "displaylogo": False,
-                            "responsive": True,
-                        },
-                        className="dbscan-cluster-graph",
-                    ),
-                    dcc.Graph(
-                        figure=make_dbscan_cluster_parallel_plot(
-                            cluster_df,
-                            cluster_id,
-                        ),
-                        config={
-                            "displayModeBar": True,
-                            "displaylogo": False,
-                            "responsive": True,
-                        },
-                        className="dbscan-cluster-graph",
-                    ),
-                ],
-            ),
-        ],
-    )
 
 
 def make_tsne_kde_plot():
@@ -2715,65 +2407,103 @@ def get_projection_columns(plot_id, plot_mode):
 
 
 def interpolate_latent_from_click(click_x, click_y, x_col, y_col, k=5):
-    if len(REAL_ROW_INDICES) > 0:
-        coords = df.iloc[REAL_ROW_INDICES][[x_col, y_col]].values.astype(np.float32)
-        latent_source = X_raw[REAL_ROW_INDICES].astype(np.float32)
-        source_indices = REAL_ROW_INDICES
-    else:
-        coords = df[[x_col, y_col]].values.astype(np.float32)
-        latent_source = X_raw.astype(np.float32)
-        source_indices = np.arange(len(df))
+    coords = df[[x_col, y_col]].values.astype(np.float32)
 
     click_point = np.array([click_x, click_y], dtype=np.float32)
 
     distances = np.linalg.norm(coords - click_point[None, :], axis=1)
 
-    nearest_local_idx = np.argsort(distances)[:k]
-    nearest_idx = source_indices[nearest_local_idx]
-    nearest_distances = distances[nearest_local_idx]
+    nearest_idx = np.argsort(distances)[:k]
+    nearest_distances = distances[nearest_idx]
 
     weights = 1.0 / (nearest_distances + 1e-6)
     weights = weights / weights.sum()
 
-    nearest_latents = latent_source[nearest_local_idx]
-    # For the cleanest decoder-only output, decode the nearest valid real latent
-    # directly instead of interpolating across neighbors.
-    z_interp = nearest_latents[0].copy()
+    nearest_latents = X_raw[nearest_idx].astype(np.float32)
+    weighted_latent = np.sum(nearest_latents * weights[:, None], axis=0)
+
+    # Keep the synthesized latent close to the learned data manifold by
+    # anchoring it strongly to the nearest real sample.
+    anchor_strength = 0.8
+    z_interp = (
+        anchor_strength * nearest_latents[0]
+        + (1.0 - anchor_strength) * weighted_latent
+    )
 
     return z_interp, nearest_idx, weights
 
 
-def decode_latent_to_base64(z_interp, nearest_idx=None, weights=None):
-    z_tensor = torch.tensor(
-        np.asarray(z_interp, dtype=np.float32)[None, :],
-        dtype=torch.float32,
-    ).to(device)
+def synthesize_ct_from_neighbors(nearest_idx, weights, img_size=IMG_SIZE):
+    candidate_rows = df.iloc[nearest_idx].copy()
+
+    if "type" in candidate_rows.columns and (candidate_rows["type"] == "real").any():
+        candidate_rows = candidate_rows[candidate_rows["type"] == "real"]
+
+    blended_images = []
+    blended_weights = []
+
+    for original_idx, weight in zip(nearest_idx, weights):
+        if original_idx not in candidate_rows.index:
+            continue
+
+        row = df.iloc[int(original_idx)]
+        _, image = load_slice_for_gradcam(row, img_size=img_size)
+
+        if image is None:
+            continue
+
+        blended_images.append(image.astype(np.float32))
+        blended_weights.append(float(weight))
+
+    if len(blended_images) == 0:
+        return None
+
+    blended_weights = np.array(blended_weights, dtype=np.float32)
+    blended_weights = blended_weights / blended_weights.sum()
+
+    blended = np.zeros_like(blended_images[0], dtype=np.float32)
+
+    for image, weight in zip(blended_images, blended_weights):
+        blended += image * weight
+
+    blended = np.clip(blended, 0.0, 1.0)
+    blended_uint8 = (blended * 255).astype(np.uint8)
+
+    clahe = cv2.createCLAHE(clipLimit=1.6, tileGridSize=(8, 8))
+    enhanced = clahe.apply(blended_uint8)
+    softened = cv2.GaussianBlur(enhanced, (0, 0), 0.7)
+    sharpened = cv2.addWeighted(enhanced, 1.25, softened, -0.25, 0)
+
+    pil_img = Image.fromarray(np.clip(sharpened, 0, 255).astype(np.uint8))
+
+    buffer = io.BytesIO()
+    pil_img.save(buffer, format="PNG")
+
+    encoded = base64.b64encode(buffer.getvalue()).decode()
+    return "data:image/png;base64," + encoded
+
+
+def decode_latent_to_base64(z_interp):
+    z_tensor = torch.tensor(z_interp, dtype=torch.float32).unsqueeze(0).to(device)
 
     with torch.no_grad():
         generated = decoder_model(z_tensor)
 
     img = generated[0, 0].detach().cpu().numpy()
     img = np.clip(img, 0, 1)
-    img_uint8 = normalize_to_uint8(img)
+    img_uint8 = (img * 255).astype(np.uint8)
 
-    median_clean = cv2.medianBlur(img_uint8, 3)
+    # Use light denoising only, so we avoid amplifying decoder artifacts.
     denoised = cv2.fastNlMeansDenoising(
-        median_clean,
+        img_uint8,
         None,
-        h=3,
+        h=4,
         templateWindowSize=7,
         searchWindowSize=21,
     )
-    denoised = cv2.bilateralFilter(
-        denoised,
-        d=5,
-        sigmaColor=20,
-        sigmaSpace=20,
-    )
-    smoothed = cv2.GaussianBlur(denoised, (0, 0), 0.35)
-    enhanced = cv2.addWeighted(denoised, 1.04, smoothed, -0.04, 0)
+    denoised = cv2.medianBlur(denoised, 3)
 
-    pil_img = Image.fromarray(np.clip(enhanced, 0, 255).astype(np.uint8))
+    pil_img = Image.fromarray(denoised)
 
     buffer = io.BytesIO()
     pil_img.save(buffer, format="PNG")
@@ -2804,7 +2534,6 @@ app.layout = html.Div(
         dcc.Store(id="generated-ct-store", data=None),
         dcc.Store(id="generated-neighbor-store", data=[]),
         dcc.Store(id="refresh-trigger", data=None),
-        dcc.Store(id="dbscan-cluster-index", data=0),
 
         html.Div(
             className="header",
@@ -2975,98 +2704,6 @@ app.layout = html.Div(
                                         "displayModeBar": True,
                                         "modeBarButtonsToAdd": ["lasso2d", "select2d"],
                                     },
-                                ),
-                            ],
-                        ),
-
-                        html.Div(
-                            id="dbscan-cluster-breakdown-card",
-                            className="plot-card",
-                            style={"display": "none"},
-                            children=[
-                                html.Div("DBSCAN Breakdown", className="section-kicker"),
-                                html.H3(
-                                    "Clusters one by one with feature patterns",
-                                    className="dbscan-breakdown-title",
-                                ),
-                                html.P(
-                                    "Each cluster is highlighted in PCA space and paired with an interactive parallel coordinate view of its most variable features.",
-                                    className="dbscan-breakdown-description",
-                                ),
-                                html.Div(
-                                    id="dbscan-cluster-breakdown",
-                                    className="dbscan-cluster-breakdown",
-                                    children=[
-                                        html.Div(
-                                            className="dbscan-cluster-card",
-                                            children=[
-                                                html.Div(
-                                                    className="dbscan-cluster-header",
-                                                    children=[
-                                                        html.Div(
-                                                            id="dbscan-cluster-title",
-                                                            className="dbscan-cluster-title",
-                                                        ),
-                                                        html.Div(
-                                                            id="dbscan-cluster-meta",
-                                                            className="dbscan-cluster-meta",
-                                                        ),
-                                                    ],
-                                                ),
-                                                html.Div(
-                                                    className="dbscan-cluster-graphs",
-                                                    children=[
-                                                        dcc.Graph(
-                                                            id="dbscan-cluster-highlight-graph",
-                                                            figure=go.Figure(),
-                                                            config={
-                                                                "displayModeBar": True,
-                                                                "displaylogo": False,
-                                                                "responsive": True,
-                                                            },
-                                                            className="dbscan-cluster-graph",
-                                                        ),
-                                                        dcc.Graph(
-                                                            id="dbscan-cluster-parcoords-graph",
-                                                            figure=go.Figure(),
-                                                            config={
-                                                                "displayModeBar": True,
-                                                                "displaylogo": False,
-                                                                "responsive": True,
-                                                            },
-                                                            className="dbscan-cluster-graph",
-                                                        ),
-                                                    ],
-                                                ),
-                                            ],
-                                        ),
-                                    ],
-                                ),
-                                html.Div(
-                                    className="dbscan-cluster-nav",
-                                    children=[
-                                        html.Div(
-                                            id="dbscan-cluster-progress",
-                                            className="dbscan-cluster-progress",
-                                        ),
-                                        html.Div(
-                                            className="dbscan-cluster-nav-buttons",
-                                            children=[
-                                                html.Button(
-                                                    "<- Previous Cluster",
-                                                    id="dbscan-prev-cluster-button",
-                                                    n_clicks=0,
-                                                    className="refresh-button dbscan-next-button",
-                                                ),
-                                                html.Button(
-                                                    "Next Cluster ->",
-                                                    id="dbscan-next-cluster-button",
-                                                    n_clicks=0,
-                                                    className="refresh-button dbscan-next-button",
-                                                ),
-                                            ],
-                                        ),
-                                    ],
                                 ),
                             ],
                         ),
@@ -3250,7 +2887,6 @@ app.clientside_callback(
     Output("single-plot-container", "style"),
     Output("compare-plot-container", "style"),
     Output("compare-action-container", "style"),
-    Output("dbscan-cluster-breakdown-card", "style"),
     Input("plot-mode", "value"),
 )
 def toggle_plot_mode(plot_mode):
@@ -3259,20 +2895,10 @@ def toggle_plot_mode(plot_mode):
             {"display": "none"},
             {"display": "block"},
             {"display": "block"},
-            {"display": "none"},
-        )
-
-    if plot_mode == "dbscan":
-        return (
-            {"display": "block"},
-            {"display": "none"},
-            {"display": "none"},
-            {"display": "block"},
         )
 
     return (
         {"display": "block"},
-        {"display": "none"},
         {"display": "none"},
         {"display": "none"},
     )
@@ -3351,69 +2977,8 @@ def update_plot(plot_mode):
 
 
 @app.callback(
-    Output("dbscan-cluster-index", "data"),
-    Input("plot-mode", "value"),
-    Input("dbscan-prev-cluster-button", "n_clicks"),
-    Input("dbscan-next-cluster-button", "n_clicks"),
-    State("dbscan-cluster-index", "data"),
-)
-def update_dbscan_cluster_index(plot_mode, prev_clicks, next_clicks, current_index):
-    cluster_ids = get_dbscan_cluster_ids(eps=DBSCAN_EPS, min_samples=DBSCAN_MIN_SAMPLES)
-
-    if plot_mode != "dbscan" or len(cluster_ids) == 0:
-        return 0
-
-    if ctx.triggered_id == "plot-mode":
-        return 0
-
-    current_index = int(current_index or 0)
-    if ctx.triggered_id == "dbscan-prev-cluster-button":
-        return (current_index - 1) % len(cluster_ids)
-
-    return (current_index + 1) % len(cluster_ids)
-
-
-@app.callback(
-    Output("dbscan-cluster-title", "children"),
-    Output("dbscan-cluster-meta", "children"),
-    Output("dbscan-cluster-highlight-graph", "figure"),
-    Output("dbscan-cluster-parcoords-graph", "figure"),
-    Output("dbscan-cluster-progress", "children"),
-    Input("plot-mode", "value"),
-    Input("dbscan-cluster-index", "data"),
-)
-def update_dbscan_cluster_breakdown(plot_mode, cluster_index):
-    if plot_mode != "dbscan":
-        empty_fig = go.Figure()
-        return "", "", empty_fig, empty_fig, ""
-
-    cluster_ids = get_dbscan_cluster_ids(eps=DBSCAN_EPS, min_samples=DBSCAN_MIN_SAMPLES)
-    if len(cluster_ids) == 0:
-        empty_fig = go.Figure()
-        return "", "No DBSCAN clusters available.", empty_fig, empty_fig, ""
-
-    cluster_index = int(cluster_index or 0) % len(cluster_ids)
-    cluster_id = cluster_ids[cluster_index]
-    dbscan_df = compute_dbscan_dataframe(eps=DBSCAN_EPS, min_samples=DBSCAN_MIN_SAMPLES)
-    cluster_df = dbscan_df[dbscan_df["cluster"] == cluster_id].copy()
-    type_counts = cluster_df["type"].value_counts()
-    real_count = int(type_counts.get("real", 0))
-    fake_count = int(type_counts.get("fake", 0))
-    cluster_name = "Noise / Outliers" if cluster_id == -1 else f"Cluster {cluster_id}"
-
-    return (
-        cluster_name,
-        f"Total: {len(cluster_df)} | Real: {real_count} | Fake: {fake_count}",
-        make_dbscan_cluster_highlight_plot(cluster_df, dbscan_df, cluster_id),
-        make_dbscan_cluster_parallel_plot(cluster_df, cluster_id),
-        f"Showing cluster {cluster_index + 1} of {len(cluster_ids)}",
-    )
-
-
-@app.callback(
     Output("selected-point-store", "data"),
     Input("main-plot", "selectedData"),
-    Input("dbscan-cluster-highlight-graph", "selectedData"),
     Input("compare-pca-plot", "selectedData"),
     Input("compare-tsne-plot", "selectedData"),
     Input("compare-umap-plot", "selectedData"),
@@ -3423,7 +2988,6 @@ def update_dbscan_cluster_breakdown(plot_mode, cluster_index):
 )
 def store_selected_points(
     main_selected,
-    dbscan_cluster_selected,
     pca_selected,
     tsne_selected,
     umap_selected,
@@ -3437,7 +3001,6 @@ def store_selected_points(
 
     selected_map = {
         "main-plot": main_selected,
-        "dbscan-cluster-highlight-graph": dbscan_cluster_selected,
         "compare-pca-plot": pca_selected,
         "compare-tsne-plot": tsne_selected,
         "compare-umap-plot": umap_selected,
@@ -3488,15 +3051,13 @@ def update_compare_plots(selected_ids, generated_neighbor_ids, compare_action):
     Output("selected-image", "className"),
     Output("image-info", "children"),
     Input("main-plot", "clickData"),
-    Input("dbscan-cluster-highlight-graph", "clickData"),
     Input("compare-pca-plot", "clickData"),
     Input("compare-tsne-plot", "clickData"),
     Input("compare-umap-plot", "clickData"),
 )
-def display_clicked_image(main_click, dbscan_cluster_click, pca_click, tsne_click, umap_click):
+def display_clicked_image(main_click, pca_click, tsne_click, umap_click):
     click_map = {
         "main-plot": main_click,
-        "dbscan-cluster-highlight-graph": dbscan_cluster_click,
         "compare-pca-plot": pca_click,
         "compare-tsne-plot": tsne_click,
         "compare-umap-plot": umap_click,
@@ -3676,12 +3237,12 @@ def generate_ct_from_clicked_or_selected_space(
             k=5,
         )
 
-        img_src = decode_latent_to_base64(
-            z_interp,
-            nearest_idx=nearest_idx,
-            weights=weights,
-        )
-        generation_method = "stabilized decoder generation"
+        img_src = synthesize_ct_from_neighbors(nearest_idx, weights)
+        generation_method = "blended nearest real CT slices"
+
+        if img_src is None:
+            img_src = decode_latent_to_base64(z_interp)
+            generation_method = "decoder fallback"
 
         info = f"""
 Generated from {projection_name} using {action_text}
